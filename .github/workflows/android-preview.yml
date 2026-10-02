@@ -1,0 +1,53 @@
+name: Build Android preview
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'Development HTTPS server URL, ending with /'
+        required: false
+        default: 'https://example.invalid/'
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Test core
+        run: python3 -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tools
+        run: |
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps chromium
+      - name: Test mobile interface
+        run: node tests/test_ui.cjs
+      - name: Build preview APK
+        working-directory: android
+        env:
+          LOTTERY_SERVER_URL: ${{ inputs.server_url || 'https://example.invalid/' }}
+        run: gradle --no-daemon :app:assembleDebug "-PserverUrl=$LOTTERY_SERVER_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dubai-Lottery-preview-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
