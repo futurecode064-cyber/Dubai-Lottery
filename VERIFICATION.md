@@ -1,31 +1,25 @@
 # Verification — 2026-10-02
 
+GitHub Actions [build 3](https://github.com/futurecode064-cyber/Dubai-Lottery/actions/runs/36974515369) passed for source commit `cb214f2987e55279330c10aa87a19c2f99448215`.
+
 ## Completed
 
-`python3 -m unittest discover -s tests -v`: **25 tests passed**.
+- 25 Python accounting, concurrency, permissions, cutoff and HTTP/session tests passed.
+- Browser integration passed: login, entry, balance, history, leading zeroes, Myanmar-digit search, 2D/3D/4D pagination, administrator adjustment and account creation. Checked widths 320, 390, 768 and 1280 without horizontal overflow; no JavaScript page errors.
+- Android debug APK compiled with JDK 17, Gradle 8.9, AGP 8.7.3 and SDK 35. Minimum Android version is 8.0 (API 26).
+- APK downloaded; ZIP integrity, manifest/resources, MainActivity across DEX files and APK signing-block structure checked. This is not a cryptographic signature verification or physical-device test.
+- Pull request #1 merged into main.
 
-Verified accounting and authorization behavior:
+APK: Dubai-Lottery-preview.apk (14,825 bytes).
+SHA-256: `c8bd07711ed3dbbbf4df116efaa6383e1659a7a7bcca8fa8fb5040ff94cd3dd5`.
 
-- 2D/3D/4D exact matching, leading zeroes and payouts of 80x/650x/6000x.
-- Stake deduction, losing entries, repeat settlements and receipt reconciliation.
-- Repeated/concurrent requests deduct or pay once; concurrent bets cannot overdraw.
-- Insufficient balance and payout-cap errors roll back the complete transaction.
-- 18:00 Asia/Yangon is an inclusive cutoff; results cannot publish early.
-- Three separate draws each day; new dates receive separate draw records.
-- Player/admin permissions, malformed inputs and immutable published results.
-- Daily limits across all markets and voluntary breaks.
-- Password/session storage, login, logout, HttpOnly and SameSite cookies.
-- Unauthorized HTTP requests, mutation header protection, private file access and security headers.
+## Still required
 
-JavaScript syntax passed `node --check` for the inline UI script and browser-test script. Python source compiled using `py_compile`.
+- HTTPS hosting and persistent database. APK starts with server setup; no live account or betting service is connected by default.
+- Physical-device QA, persistent release signing and app update delivery.
+- Identity/age verification, admin MFA, backup/restore and production security review.
+- Cash payment processing and appropriate authorization before real-money operation.
 
-## Not completed
+No Render service, Neon database or paid resource was created. Current tokens are for development testing.
 
-- Browser integration and visual QA: `tests/test_ui.cjs` attempted to launch Playwright, but the environment has no Chromium executable. No browser assertions ran; no screenshot was generated. The test script is included for a machine with Playwright/Chromium installed.
-- APK compilation: no Android SDK, Gradle or Java compiler is available in this environment. The Android project and workflow are provided but not compiled or device-tested.
-- HTTPS hosting, production database, backups, release signing, cash payments, identity verification and legal authorization are not configured.
-- No GitHub repository, Render service or Neon database was created or modified for this project. No paid resources were created.
-
-This verification covers a development prototype. It does not establish readiness for real-money operation.
-
-Build compatibility reference: [Android Gradle Plugin 8.7](https://developer.android.com/build/releases/agp-8-7-0-release-notes) — Gradle 8.9, JDK 17, maximum API 35.
+Build reference: [AGP 8.7 compatibility](https://developer.android.com/build/releases/agp-8-7-0-release-notes).
