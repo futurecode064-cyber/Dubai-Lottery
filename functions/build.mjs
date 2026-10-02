@@ -12,6 +12,6 @@ await build({
   target:'node24',
   format:'esm',
   outfile:resolve(out,'index.mjs'),
-  banner:{js:"import{createRequire as ___cr}from'node:module';import{fileURLToPath as ___f}from'node:url';import{dirname as ___d}from'node:path';const require=___cr(import.meta.url);const __filename=___f(import.meta.url);const __dirname=___d(__filename);"}
+  banner:{js:"import{createRequire as ___cr}from'node:module';const __filename='/tmp/dubai-lottery/index.mjs';const __dirname='/tmp/dubai-lottery';const require=___cr(__filename);"}
 });
 console.log('Built Dubai Lottery Neon Function bundle.');
