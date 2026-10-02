@@ -12,6 +12,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Smoke test live service
+        env:
+          BASE_URL: https://br-morning-snow-b3say1da-lottery.compute.c-4.ap-southeast-1.aws.neon.tech
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 "$BASE_URL/health" | grep '"ok":true'
+          curl --fail --silent --show-error --retry 3 "$BASE_URL/ready" | grep '"ok":true'
+          curl --fail --silent --show-error --retry 3 "$BASE_URL/" | grep 'Dubai Lottery'
+          curl --fail --silent --show-error --retry 3 "$BASE_URL/admin" | grep 'Dubai Lottery Admin'
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' "$BASE_URL/api/state")"
+          test "$code" = "401"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
