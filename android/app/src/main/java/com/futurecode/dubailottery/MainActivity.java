@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.WRAP_CONTENT));
         web = new WebView(this);
         frame.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT));
+            0, 1.0f));
         setContentView(frame);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
