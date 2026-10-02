@@ -4,12 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      server_url:
-        description: 'Development HTTPS server URL, ending with /'
-        required: false
-        default: 'https://example.invalid/'
-        type: string
 permissions:
   contents: read
 jobs:
@@ -44,9 +38,7 @@ jobs:
         run: node tests/test_ui.cjs
       - name: Build preview APK
         working-directory: android
-        env:
-          LOTTERY_SERVER_URL: ${{ inputs.server_url || 'https://example.invalid/' }}
-        run: gradle --no-daemon :app:assembleDebug "-PserverUrl=$LOTTERY_SERVER_URL"
+        run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: Dubai-Lottery-preview-APK
