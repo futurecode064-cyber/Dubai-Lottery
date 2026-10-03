@@ -1,9 +1,10 @@
 import {build} from 'esbuild';
-import {mkdir} from 'node:fs/promises';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 const dir=dirname(fileURLToPath(import.meta.url));
 const out=resolve(dir,'dist');
+const outfile=resolve(out,'index.mjs');
 await mkdir(out,{recursive:true});
 await build({
   entryPoints:[resolve(dir,'index.mjs')],
@@ -11,7 +12,24 @@ await build({
   platform:'node',
   target:'node24',
   format:'esm',
-  outfile:resolve(out,'index.mjs'),
+  outfile,
   banner:{js:"import{createRequire as ___cr}from'node:module';const __filename='/tmp/dubai-lottery/index.mjs';const __dirname='/tmp/dubai-lottery';const require=___cr(__filename);"}
 });
-console.log('Built Dubai Lottery Neon Function bundle.');
+
+// Keep the deployed player UI aligned with the approved result-card copy while
+// leaving the existing account/result logic untouched.
+let bundled=await readFile(outfile,'utf8');
+const oldHint='Lucky Number များသည် ရလဒ်မထွက်မီ random ပြောင်းနေမည်ဖြစ်ပြီး သတ်မှတ်ထွက်ချိန်တွင် Admin အတည်ပြုထားသော ရလဒ်ကို ပြသမည်ဖြစ်ပါသည်။ ပြောင်းနေသောဂဏန်းများက အနိုင်ရရလဒ်ကို မဆုံးဖြတ်ပါ။ ရလဒ်ထွက်ရှိပြီးနောက် ၈ နာရီကြာ ပြထားပေးမည်ဖြစ်သလို ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။';
+const newHint='Lucky Number များသည် random ပြောင်းနေမည် ဖြစ်ပြီး Lucky Number ထွက်ချိန်တွင် ကွက်တိကျရောက်သည့် Number သည် Lucky Number ဖြစ်ပါသည်။ Lucky Number ထွက်ရှိပြီးသည့်အခါ ရလဒ်ကို ၈ နာရီကြာထိ ပြထားပေးမည်ဖြစ်သလို ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။';
+const sourceCss='.result-source{font-size:10px;color:var(--muted);word-break:break-word}';
+const sourceMarkup='<div class="result-source">\'+(d?esc(d.source):\'မထုတ်ပြန်ရသေး\')+\'</div>';
+for(const [name,value] of [['result hint',oldHint],['result source CSS',sourceCss],['result source markup',sourceMarkup]]){
+  if(!bundled.includes(value)) throw new Error(`Expected ${name} was not found in bundle`);
+}
+bundled=bundled
+  .replace(oldHint,newHint)
+  .replace(sourceCss,'')
+  .replace(sourceMarkup,'')
+  .replaceAll('အလှပြဂဏန်း','random ဂဏန်း');
+await writeFile(outfile,bundled);
+console.log('Built Dubai Lottery Neon Function bundle with finalized player result UI.');
