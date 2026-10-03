@@ -12,59 +12,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify live player and admin endpoints
+      - name: Verify final live player and admin endpoints
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://br-morning-snow-b3say1da-lottery.compute.c-4.ap-southeast-1.aws.neon.tech'
-          curl --fail --silent --show-error --retry 3 "$BASE/health" | grep -F '"ok":true'
-          curl --fail --silent --show-error --retry 3 "$BASE/ready" | grep -F '"ok":true'
-          curl --fail --silent --show-error --retry 3 "$BASE/" -o /tmp/player.html
-          curl --fail --silent --show-error --retry 3 "$BASE/admin" -o /tmp/admin.html
+          curl --fail --silent --show-error --retry 4 --retry-delay 2 "$BASE/health" | grep -F '"ok":true'
+          curl --fail --silent --show-error --retry 4 --retry-delay 2 "$BASE/ready" | grep -F '"ok":true'
+          curl --fail --silent --show-error --retry 4 --retry-delay 2 "$BASE/" -o /tmp/player.html
+          curl --fail --silent --show-error --retry 4 --retry-delay 2 "$BASE/admin" -o /tmp/admin.html
           grep -F 'Dubai Lottery' /tmp/player.html
           grep -F 'Dubai Lottery Admin' /tmp/admin.html
           grep -F 'Senior Admin' /tmp/admin.html
           grep -F 'Master Admin' /tmp/admin.html
           grep -F 'ရလဒ်ထွက်ချိန် = ညနေ ၆ နာရီ' /tmp/player.html
-          grep -F 'Lucky Number များသည်' /tmp/player.html
+          grep -F 'ကွက်တိကျရောက်သည့် Number သည် Lucky Number' /tmp/player.html
+          if grep -Fq 'result-source' /tmp/player.html; then
+            echo 'ERROR: result source is still visible'
+            exit 1
+          fi
           STATUS="$(curl --silent --output /tmp/anon.json --write-out '%{http_code}' "$BASE/api/state")"
           test "$STATUS" = '401'
+          echo 'LIVE_RESULT_SOURCE=hidden'
+          echo 'LIVE_FINAL_COPY=present'
           echo "Anonymous /api/state status: $STATUS"
-          if grep -Fq 'result-source' /tmp/player.html; then
-            echo 'LIVE_RESULT_SOURCE=present'
-          else
-            echo 'LIVE_RESULT_SOURCE=hidden'
-          fi
-          if grep -Fq 'ကွက်တိကျရောက်သည့် Number သည် Lucky Number' /tmp/player.html; then
-            echo 'LIVE_FINAL_COPY=present'
-          else
-            echo 'LIVE_FINAL_COPY=missing'
-          fi
-      - name: Discover existing Neon project id
-        shell: bash
-        env:
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_API_TOKEN: ${{ secrets.NEON_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          KEY="${NEON_API_KEY:-${NEON_API_TOKEN:-}}"
-          if [ -z "$KEY" ]; then
-            echo 'NEON_GITHUB_SECRET=missing'
-            exit 0
-          fi
-          echo 'NEON_GITHUB_SECRET=present'
-          PROJECTS="$(curl --fail --silent --show-error -H "Authorization: Bearer $KEY" 'https://console.neon.tech/api/v2/projects?limit=100')"
-          FOUND=''
-          while IFS= read -r PID; do
-            [ -n "$PID" ] || continue
-            BRANCHES="$(curl --fail --silent --show-error -H "Authorization: Bearer $KEY" "https://console.neon.tech/api/v2/projects/$PID/branches")"
-            if printf '%s' "$BRANCHES" | jq -e --arg BID 'br-morning-snow-b3say1da' '[.branches[]? | (.id // .branch.id // empty)] | index($BID) != null' >/dev/null; then
-              FOUND="$PID"
-              break
-            fi
-          done < <(printf '%s' "$PROJECTS" | jq -r '.projects[]? | (.id // .project.id // empty)')
-          if [ -n "$FOUND" ]; then
-            echo "NEON_PROJECT_MATCH=$FOUND"
-          else
-            echo 'NEON_PROJECT_MATCH=not_found'
-          fi
