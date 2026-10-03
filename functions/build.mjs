@@ -11,16 +11,18 @@ const oldHint='Lucky Number များသည် ရလဒ်မထွက်မ
 const newHint='Lucky Number များသည် random ပြောင်းနေမည် ဖြစ်ပြီး Lucky Number ထွက်ချိန်တွင် ကွက်တိကျရောက်သည့် Number သည် Lucky Number ဖြစ်ပါသည်။ Lucky Number ထွက်ရှိပြီးသည့်အခါ ရလဒ်ကို ၈ နာရီကြာထိ ပြထားပေးမည်ဖြစ်သလို ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။';
 const sourceCss='.result-source{font-size:10px;color:var(--muted);word-break:break-word}';
 const sourceMarkup='<div class="result-source">'+"${d?esc(d.source):'မထုတ်ပြန်ရသေး'}"+'</div>';
+const sourceMarkupActual='<div class="result-source">'+"'+(d?esc(d.source):'မထုတ်ပြန်ရသေး')+'"+'</div>';
 
 const finalPlayerUi={
   name:'final-player-ui',
   setup(b){
     b.onLoad({filter:/ui-player\.mjs$/},async args=>{
       let s=await readFile(args.path,'utf8');
-      for(const [name,value] of [['result hint',oldHint],['result source CSS',sourceCss],['result source markup',sourceMarkup]]){
+      const markup=s.includes(sourceMarkupActual)?sourceMarkupActual:sourceMarkup;
+      for(const [name,value] of [['result hint',oldHint],['result source CSS',sourceCss],['result source markup',markup]]){
         if(!s.includes(value)) throw new Error(`Expected ${name} was not found in player UI source`);
       }
-      s=s.replace(oldHint,newHint).replace(sourceCss,'').replace(sourceMarkup,'').replaceAll('အလှပြဂဏန်း','random ဂဏန်း');
+      s=s.replace(oldHint,newHint).replace(sourceCss,'').replace(markup,'').replaceAll('အလှပြဂဏန်း','random ဂဏန်း');
       return {contents:s,loader:'js'};
     });
   }
