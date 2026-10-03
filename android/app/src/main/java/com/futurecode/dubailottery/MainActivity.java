@@ -3,11 +3,9 @@ package com.futurecode.dubailottery;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
-import android.webkit.CookieManager;
 import android.webkit.JsResult;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -16,74 +14,86 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
+
 public class MainActivity extends Activity {
     private WebView web;
-    private boolean errorVisible = false;
-    private final String serverUrl = BuildConfig.SERVER_URL;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
-        frame.setBackgroundColor(Color.rgb(8,14,32));
+        frame.setBackgroundColor(Color.rgb(8, 14, 28));
         frame.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                 insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
             return insets.consumeSystemWindowInsets();
         });
+
         web = new WebView(this);
-        frame.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            0, 1.0f));
+        frame.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(frame);
 
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(false);
-        s.setAllowFileAccess(false);
-        s.setAllowContentAccess(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        WebSettings settings = web.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         web.setWebChromeClient(new WebChromeClient() {
-            @Override public boolean onJsConfirm(WebView v, String url, String message, JsResult result) {
-                new AlertDialog.Builder(MainActivity.this).setTitle("Dubai Lottery")
-                    .setMessage(message).setPositiveButton("အတည်ပြု", (d,w) -> result.confirm())
-                    .setNegativeButton("မလုပ်တော့ပါ", (d,w) -> result.cancel())
-                    .setOnCancelListener(d -> result.cancel()).show();
+            @Override public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Dubai Lottery · Free Play")
+                    .setMessage(message)
+                    .setPositiveButton("အတည်ပြု", (d, w) -> result.confirm())
+                    .setNegativeButton("မလုပ်တော့ပါ", (d, w) -> result.cancel())
+                    .setOnCancelListener(d -> result.cancel())
+                    .show();
                 return true;
             }
         });
 
         web.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
-                Uri target = req.getUrl();
-                Uri expected = Uri.parse(serverUrl);
-                String path = target.getPath();
-                boolean sameOrigin = "https".equals(target.getScheme())
-                    && expected.getHost().equals(target.getHost())
-                    && target.getPort() == expected.getPort();
-                boolean adminPath = path != null && (path.equals("/admin") || path.startsWith("/admin/"));
-                return !sameOrigin || adminPath;
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String host = request.getUrl().getHost();
+                return host == null || !host.equals("app.local");
             }
 
-            @Override public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError err) {
-                if (!req.isForMainFrame() || errorVisible) return;
-                errorVisible = true;
-                new AlertDialog.Builder(MainActivity.this).setTitle("ချိတ်ဆက်မရပါ")
-                    .setMessage("အင်တာနက်ချိတ်ဆက်မှုကို စစ်ပြီး ပြန်စမ်းပါ။")
-                    .setPositiveButton("ပြန်စမ်းမယ်", (d,w) -> {
-                        errorVisible = false;
-                        web.loadUrl(serverUrl);
-                    })
-                    .setOnCancelListener(d -> errorVisible = false).show();
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (!request.isForMainFrame()) return;
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("App UI ဖွင့်မရပါ")
+                    .setMessage("Local app UI ကို ပြန်ဖွင့်ပါ။")
+                    .setPositiveButton("ပြန်ဖွင့်မယ်", (d, w) -> loadLocalUi())
+                    .show();
             }
         });
 
-        web.loadUrl(serverUrl);
+        loadLocalUi();
+    }
+
+    private void loadLocalUi() {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+            getAssets().open("index.html"), StandardCharsets.UTF_8))) {
+            String html = reader.lines().collect(Collectors.joining("\n"));
+            String apiBase = BuildConfig.API_BASE.replace("\\", "\\\\").replace("'", "\\'");
+            html = html.replace("__API_BASE__", apiBase);
+            web.loadDataWithBaseURL("https://app.local/", html, "text/html", "UTF-8", null);
+        } catch (Exception e) {
+            new AlertDialog.Builder(this)
+                .setTitle("App UI မတွေ့ပါ")
+                .setMessage("APK asset ကို စစ်ပါ။")
+                .setPositiveButton("OK", null)
+                .show();
+        }
     }
 
     @Override public void onBackPressed() {
-        if (web.canGoBack()) web.goBack(); else super.onBackPressed();
+        if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed();
     }
 
     @Override protected void onDestroy() {
