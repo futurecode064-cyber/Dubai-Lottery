@@ -7,8 +7,8 @@ const out=resolve(dir,'dist');
 const outfile=resolve(out,'index.mjs');
 await mkdir(out,{recursive:true});
 
-const oldHint='Lucky Number များသည် ရလဒ်မထွက်မီ random ပြောင်းနေမည်ဖြစ်ပြီး သတ်မှတ်ထွက်ချိန်တွင် Admin အတည်ပြုထားသော ရလဒ်ကို ပြသမည်ဖြစ်ပါသည်။ ပြောင်းနေသောဂဏန်းများက အနိုင်ရရလဒ်ကို မဆုံးဖြတ်ပါ။ ရလဒ်ထွက်ရှိပြီးနောက် ၈ နာရီကြာ ပြထားပေးမည်ဖြစ်သလို ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။';
-const newHint='Lucky Number များသည် random ပြောင်းနေမည် ဖြစ်ပြီး Lucky Number ထွက်ချိန်တွင် ကွက်တိကျရောက်သည့် Number သည် Lucky Number ဖြစ်ပါသည်။ Lucky Number ထွက်ရှိပြီးသည့်အခါ ရလဒ်ကို ၈ နာရီကြာထိ ပြထားပေးမည်ဖြစ်သလို ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။';
+const oldHint="Lucky Number များသည် ရလဒ်မထွက်မီ random ပြောင်းနေမည်ဖြစ်ပြီး သတ်မှတ်ထွက်ချိန်တွင် Admin အတည်ပြုထားသော ရလဒ်ကို ပြသမည်ဖြစ်ပါသည်။ ပြောင်းနေသောဂဏန်းများက အနိုင်ရရလဒ်ကို မဆုံးဖြတ်ပါ။ ရလဒ်ထွက်ရှိသည့်နေ့ မြန်မာချိန် ည ၁၂ နာရီအထိ ပြထားပေးမည်ဖြစ်ပြီး နောက်နေ့စသည်နှင့် random ဂဏန်းများ ပြန်လည်ပြောင်းလဲမည်ဖြစ်ပါသည်။ ထွက်ရှိပြီးသမျှ နေ့စဉ် result များကိုလည်း ရလဒ်များစာရင်းတွင် ဝင်ရောက်ကြည့်ရှုနိုင်ပါသည်။";
+const newHint=oldHint;
 const sourceCss='.result-source{font-size:10px;color:var(--muted);word-break:break-word}';
 const sourceMarkup='<div class="result-source">'+"${d?esc(d.source):'မထုတ်ပြန်ရသေး'}"+'</div>';
 const sourceMarkupActual='<div class="result-source">'+"'+(d?esc(d.source):'မထုတ်ပြန်ရသေး')+'"+'</div>';
