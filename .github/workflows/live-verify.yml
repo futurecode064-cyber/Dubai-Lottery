@@ -1,0 +1,42 @@
+name: Verify Live Lottery Service
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/live-verify.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify live player and admin endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://br-morning-snow-b3say1da-lottery.compute.c-4.ap-southeast-1.aws.neon.tech'
+          curl --fail --silent --show-error --retry 3 "$BASE/health" | grep -F '"ok":true'
+          curl --fail --silent --show-error --retry 3 "$BASE/ready" | grep -F '"ok":true'
+          curl --fail --silent --show-error --retry 3 "$BASE/" -o /tmp/player.html
+          curl --fail --silent --show-error --retry 3 "$BASE/admin" -o /tmp/admin.html
+          grep -F 'Dubai Lottery' /tmp/player.html
+          grep -F 'Dubai Lottery Admin' /tmp/admin.html
+          grep -F 'Senior Admin' /tmp/admin.html
+          grep -F 'Master Admin' /tmp/admin.html
+          grep -F 'ရလဒ်ထွက်ချိန် = ညနေ ၆ နာရီ' /tmp/player.html
+          grep -F 'Lucky Number များသည်' /tmp/player.html
+          STATUS="$(curl --silent --output /tmp/anon.json --write-out '%{http_code}' "$BASE/api/state")"
+          test "$STATUS" = '401'
+          echo "Anonymous /api/state status: $STATUS"
+          if grep -Fq 'result-source' /tmp/player.html; then
+            echo 'LIVE_RESULT_SOURCE=present'
+          else
+            echo 'LIVE_RESULT_SOURCE=hidden'
+          fi
+          if grep -Fq 'ကွက်တိကျရောက်သည့် Number သည် Lucky Number' /tmp/player.html; then
+            echo 'LIVE_FINAL_COPY=present'
+          else
+            echo 'LIVE_FINAL_COPY=missing'
+          fi
