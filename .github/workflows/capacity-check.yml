@@ -1,0 +1,63 @@
+name: Live Lottery Capacity Check
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/capacity-check.yml'
+permissions:
+  contents: read
+jobs:
+  capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run controlled read-only concurrency test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures, threading, time, urllib.request, urllib.error, statistics
+          BASE='https://br-morning-snow-b3say1da-lottery.compute.c-4.ap-southeast-1.aws.neon.tech'
+
+          def percentile(xs, p):
+              if not xs: return None
+              ys=sorted(xs)
+              i=min(len(ys)-1, max(0, int((len(ys)-1)*p)))
+              return ys[i]
+
+          def run_stage(path, concurrency):
+              barrier=threading.Barrier(concurrency)
+              def hit(_):
+                  barrier.wait(timeout=30)
+                  started=time.perf_counter()
+                  code=None
+                  err=''
+                  try:
+                      req=urllib.request.Request(BASE+path, headers={'User-Agent':'Dubai-Lottery-Capacity-Check/1.0'})
+                      with urllib.request.urlopen(req, timeout=25) as r:
+                          code=r.status
+                          r.read(64)
+                  except urllib.error.HTTPError as e:
+                      code=e.code
+                      err='HTTPError'
+                  except Exception as e:
+                      err=type(e).__name__
+                  return code, time.perf_counter()-started, err
+              stage_started=time.perf_counter()
+              with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
+                  results=list(ex.map(hit, range(concurrency)))
+              wall=time.perf_counter()-stage_started
+              ok=[x for x in results if x[0]==200]
+              lat=[x[1] for x in ok]
+              status={}
+              errors={}
+              for code,d,err in results:
+                  status[str(code)]=status.get(str(code),0)+1
+                  if err: errors[err]=errors.get(err,0)+1
+              print(f'CAPACITY path={path} concurrency={concurrency} total={len(results)} ok200={len(ok)} success_pct={len(ok)*100/len(results):.1f} wall_s={wall:.3f} throughput_rps={len(results)/wall:.1f} p50_s={(percentile(lat,.50) if lat else -1):.3f} p95_s={(percentile(lat,.95) if lat else -1):.3f} max_s={(max(lat) if lat else -1):.3f} statuses={status} errors={errors}', flush=True)
+              time.sleep(3)
+
+          # /ready executes a real database SELECT 1; / serves the player application page.
+          for path in ('/ready','/'):
+              for c in (100,300,500):
+                  run_stage(path,c)
+          PY
