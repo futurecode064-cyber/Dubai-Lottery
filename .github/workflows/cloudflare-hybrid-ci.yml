@@ -1,0 +1,67 @@
+name: Cloudflare Hybrid Free-Play CI
+on:
+  push:
+    branches: [cloudflare-hybrid]
+    paths:
+      - 'cloudflare/**'
+      - 'android/**'
+      - 'HYBRID_MIGRATION.md'
+      - '.github/workflows/cloudflare-hybrid-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  worker-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check Worker JavaScript
+        run: node --check cloudflare/src/index.js
+      - name: Validate D1 schema as SQLite
+        run: |
+          python3 - <<'PY'
+          import sqlite3, pathlib
+          sql=pathlib.Path('cloudflare/schema.sql').read_text()
+          db=sqlite3.connect(':memory:')
+          db.executescript(sql)
+          required={'users','sessions','plays','point_ledger','scheduled_results','results','app_config','login_rate'}
+          found={r[0] for r in db.execute("select name from sqlite_master where type='table'")}
+          missing=required-found
+          assert not missing, missing
+          print('D1 schema OK:', ', '.join(sorted(required)))
+          PY
+      - name: Verify free-play guardrails
+        run: |
+          grep -F "mode: 'free-play'" cloudflare/src/index.js
+          grep -F "redeemable: false" cloudflare/src/index.js
+          grep -F 'DEMO POINTS ONLY' android/app/src/main/assets/index.html
+          ! grep -R -E 'withdraw|cashout|cash-out|deposit' cloudflare/src android/app/src/main/assets/index.html
+  android-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build local-UI preview APK
+        working-directory: android
+        run: gradle --no-daemon :app:assembleDebug -PapiBase=https://api.example.invalid/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dubai-Lottery-FreePlay-Hybrid-preview
+          path: android/app/build/outputs/apk/debug/app-debug.apk
