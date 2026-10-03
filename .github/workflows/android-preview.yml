@@ -3,6 +3,11 @@ on:
   pull_request:
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'server/**'
+      - 'tests/**'
+
   workflow_dispatch:
 permissions:
   contents: read

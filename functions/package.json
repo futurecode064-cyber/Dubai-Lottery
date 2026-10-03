@@ -8,6 +8,10 @@
     "pg": "^8.23.1"
   },
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node tests/player-ui.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2"
   }
 }

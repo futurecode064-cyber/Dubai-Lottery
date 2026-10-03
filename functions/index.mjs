@@ -4,6 +4,7 @@ import pg from 'pg';
 import {attachDatabasePool} from '@neon/functions';
 import {playerPage} from './ui-player.mjs';
 import {adminPage} from './ui-admin.mjs';
+import {cutoffFor} from './schedule.mjs';
 
 pg.types.setTypeParser(20, Number);
 const derive=promisify(scrypt);
@@ -22,7 +23,6 @@ const token=()=>randomBytes(32).toString('base64url');
 const q=(c,sql,args=[])=>c.query(sql,args);
 const one=async(c,sql,args=[])=>(await q(c,sql,args)).rows[0];
 const localDay=(d=now())=>new Date(d.getTime()+MM_OFFSET).toISOString().slice(0,10);
-const cutoffFor=day=>new Date(day+'T11:30:00.000Z');
 const strongUser=x=>typeof x==='string'&&/^[A-Za-z0-9_.-]{3,32}$/.test(x);
 const reqKey=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{16,80}$/.test(x);
 const int=(x,lo,hi)=>Number.isInteger(x)&&x>=lo&&x<=hi;
@@ -80,8 +80,14 @@ async function initialize(){
  })().catch(e=>{initPromise=undefined;throw e});return initPromise;
 }
 async function ensureDay(c,d=now()){
- const day=localDay(d),cut=cutoffFor(day);
- for(const [market,mult] of Object.entries(MULT))await q(c,'INSERT INTO draws(day,market,cutoff,multiplier) VALUES($1,$2,$3,$4) ON CONFLICT(day,market) DO NOTHING',[day,market,cut,mult]);
+ const day=localDay(d);
+ for(const [market,mult] of Object.entries(MULT)){
+  const cut=cutoffFor(day,market);
+  // Update only today's still-open draws. Never reopen or edit published history.
+  await q(c,`INSERT INTO draws(day,market,cutoff,multiplier) VALUES($1,$2,$3,$4)
+   ON CONFLICT(day,market) DO UPDATE SET cutoff=EXCLUDED.cutoff
+   WHERE draws.status='open' AND draws.cutoff IS DISTINCT FROM EXCLUDED.cutoff`,[day,market,cut,mult]);
+ }
  await q(c,"UPDATE draws SET status='closed' WHERE status='open' AND cutoff<=$1",[d]);
  return day;
 }

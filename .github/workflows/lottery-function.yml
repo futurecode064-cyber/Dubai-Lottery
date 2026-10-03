@@ -26,6 +26,17 @@ jobs:
       - name: Syntax check
         working-directory: functions
         run: node --check index.mjs
+      - name: Install test browser
+        working-directory: functions
+        run: npx playwright install --with-deps chromium
+      - name: Test result lifecycle and responsive UI
+        working-directory: functions
+        run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dubai-Lottery-UI-checks
+          path: functions/test-artifacts/
       - name: Build function
         working-directory: functions
         run: npm run build
