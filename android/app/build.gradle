@@ -1,7 +1,7 @@
 plugins { id 'com.android.application' }
-def serverAddress = providers.gradleProperty('serverUrl').getOrElse('https://br-morning-snow-b3say1da-lottery.compute.c-4.ap-southeast-1.aws.neon.tech/')
-if (!serverAddress.startsWith('https://') || !serverAddress.endsWith('/')) {
-    throw new GradleException('serverUrl must be an HTTPS URL ending with /')
+def apiAddress = providers.gradleProperty('apiBase').getOrElse('https://api.example.invalid/')
+if (!apiAddress.startsWith('https://') || !apiAddress.endsWith('/')) {
+    throw new GradleException('apiBase must be an HTTPS URL ending with /')
 }
 android {
     namespace 'com.futurecode.dubailottery'
@@ -11,9 +11,9 @@ android {
         applicationId 'com.futurecode.dubailottery'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.3.0-preview'
-        buildConfigField 'String', 'SERVER_URL', '"' + serverAddress.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        versionCode 4
+        versionName '0.4.0-freeplay-hybrid'
+        buildConfigField 'String', 'API_BASE', '"' + apiAddress.replace('\\', '\\\\').replace('"', '\\"') + '"'
     }
     buildFeatures { buildConfig true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
