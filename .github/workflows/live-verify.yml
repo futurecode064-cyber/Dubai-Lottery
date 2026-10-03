@@ -40,3 +40,31 @@ jobs:
           else
             echo 'LIVE_FINAL_COPY=missing'
           fi
+      - name: Discover existing Neon project id
+        shell: bash
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_API_TOKEN: ${{ secrets.NEON_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          KEY="${NEON_API_KEY:-${NEON_API_TOKEN:-}}"
+          if [ -z "$KEY" ]; then
+            echo 'NEON_GITHUB_SECRET=missing'
+            exit 0
+          fi
+          echo 'NEON_GITHUB_SECRET=present'
+          PROJECTS="$(curl --fail --silent --show-error -H "Authorization: Bearer $KEY" 'https://console.neon.tech/api/v2/projects?limit=100')"
+          FOUND=''
+          while IFS= read -r PID; do
+            [ -n "$PID" ] || continue
+            BRANCHES="$(curl --fail --silent --show-error -H "Authorization: Bearer $KEY" "https://console.neon.tech/api/v2/projects/$PID/branches")"
+            if printf '%s' "$BRANCHES" | jq -e --arg BID 'br-morning-snow-b3say1da' '[.branches[]? | (.id // .branch.id // empty)] | index($BID) != null' >/dev/null; then
+              FOUND="$PID"
+              break
+            fi
+          done < <(printf '%s' "$PROJECTS" | jq -r '.projects[]? | (.id // .project.id // empty)')
+          if [ -n "$FOUND" ]; then
+            echo "NEON_PROJECT_MATCH=$FOUND"
+          else
+            echo 'NEON_PROJECT_MATCH=not_found'
+          fi
