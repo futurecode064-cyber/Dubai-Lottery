@@ -13,6 +13,15 @@ jobs:
     if: ${{ !contains(github.event.head_commit.message || '', '[skip ci]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test_only_password
+          POSTGRES_DB: lottery_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +32,13 @@ jobs:
       - name: Install dependencies
         working-directory: functions
         run: npm install --no-audit --no-fund
+      - name: Test permissions, accounting and scheduled publication
+        working-directory: functions
+        env:
+          DATABASE_URL: postgres://postgres:test_only_password@localhost:5432/lottery_test
+          LOTTERY_ADMIN_NAME: owner_test
+          LOTTERY_ADMIN_PASSWORD: TestOnlyOwnerPassword123!
+        run: npm run test:integration
       - name: Syntax check
         working-directory: functions
         run: node --check index.mjs

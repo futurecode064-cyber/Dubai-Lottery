@@ -1,0 +1,44 @@
+import {strict as assert} from 'node:assert';
+import app,{initialize,pool,transaction,admins,playerState,place,login,auth} from '../index.mjs';
+await initialize();
+const get=async id=>(await pool.query('SELECT * FROM users WHERE id=$1',[id])).rows[0];
+const root=(await pool.query("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1")).rows[0];
+const create=async(a,name,level)=>get((await transaction(c=>admins.create(c,a,{username:name,password:'TestOnlyPassword123!',level}))).id);
+const senior=await create(root,'senior_one','senior'),other=await create(root,'senior_two','senior');
+const master=await create(senior,'master_one','master'),foreign=await create(other,'master_other','master');
+const player=await create(master,'player_one','player'),splayer=await create(senior,'senior_player','player'),outside=await create(foreign,'outside_player','player');
+await assert.rejects(transaction(c=>admins.create(c,master,{username:'illegal_admin',password:'TestOnlyPassword123!',level:'senior'})),e=>e.status===403);
+let serial=0;const adjust=async(a,u,delta,key='test_request_key_'+(++serial))=>transaction(c=>admins.adjust(c,a,{user_id:u.id,delta,key,note:'test transfer reference'}));
+await adjust(root,senior,1000);await adjust(senior,master,500);await adjust(master,player,100);
+assert.equal((await get(senior.id)).balance,500);assert.equal((await get(master.id)).balance,400);assert.equal((await get(player.id)).balance,100);
+await assert.rejects(adjust(master,player,401),e=>e.status===409);assert.equal((await get(master.id)).balance,400);assert.equal((await get(player.id)).balance,100);
+await adjust(master,player,-20);assert.equal((await get(master.id)).balance,420);assert.equal((await get(player.id)).balance,80);
+await assert.rejects(adjust(master,player,-81),e=>e.status===409);assert.equal((await get(master.id)).balance,420);
+await assert.rejects(adjust(master,outside,1),e=>e.status===403);await assert.rejects(adjust(senior,player,1),e=>e.status===403);await assert.rejects(adjust(master,root,1),e=>e.status===403);
+const retry='same_request_key_123';await adjust(master,player,10,retry);await adjust(master,player,10,retry);assert.equal((await get(player.id)).balance,90);await assert.rejects(adjust(master,player,11,retry),e=>e.status===409);
+const sr=await transaction(c=>admins.state(c,senior));assert(sr.users.some(u=>u.id===player.id));assert(!sr.users.some(u=>u.id===outside.id));assert.equal(sr.draws.length,0);
+const mr=await transaction(c=>admins.state(c,master));assert.deepEqual(mr.users.map(u=>u.id),[player.id]);assert.deepEqual(mr.create_levels,['player']);
+// Per-market publication remains private before cutoff, credits once, and retains leading zeroes.
+for(const [market,mult,result] of [['2D',80,'07'],['3D',650,'007'],['4D',6000,'0007']]){
+ const d=(await pool.query("INSERT INTO draws(day,market,cutoff,multiplier) VALUES('2020-01-01',$1,$2,$3) RETURNING *",[market,new Date(Date.now()+3600000),mult])).rows[0];
+ await transaction(c=>place(c,player,{draw_id:d.id,number:result,stake:2,key:'bet_key_'+market+'_0123456'}));
+ const before=(await get(player.id)).balance;
+ await assert.rejects(transaction(c=>admins.schedule(c,master,{draw_id:d.id,result})),e=>e.status===403);
+ await transaction(c=>admins.schedule(c,root,{draw_id:d.id,result}));
+ await assert.rejects(transaction(c=>admins.schedule(c,root,{draw_id:d.id,result:'9'.repeat(market[0])})),e=>e.status===409);
+ const pre=await transaction(c=>playerState(c,player));const pd=pre.draws.find(x=>x.id===d.id);assert.equal(pd.result,null);assert.equal(pd.settled_at,null);assert.equal((await get(player.id)).balance,before);assert(!JSON.stringify(pre).includes('scheduled_result'));
+ await pool.query('UPDATE draws SET cutoff=$1 WHERE id=$2',[new Date(Date.now()-1000),d.id]);
+ const after=await transaction(c=>playerState(c,player));assert.equal(after.draws.find(x=>x.id===d.id).result,result);assert.equal((await get(player.id)).balance,before+2*mult);
+ await Promise.all([transaction(c=>playerState(c,player)),transaction(c=>playerState(c,player))]);assert.equal((await get(player.id)).balance,before+2*mult);
+ assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM ledger WHERE ref=$1",['win:'+pre.bets.find(b=>b.market===market).id])).rows[0].n,1);
+}
+await adjust(root,outside,100);const draw=(await pool.query("SELECT id FROM draws WHERE day='2020-01-01' AND market='2D'")).rows[0];await pool.query('INSERT INTO bets(user_id,draw_id,number,stake,multiplier,created_at,request_key) VALUES($1,$2,\'99\',90,80,now(),\'outside_fixture_key\')',[outside.id,draw.id]);
+const p=new URLSearchParams({day:'2020-01-01',sort:'tokens'});const report=await transaction(c=>admins.report(c,senior,p));assert.equal(report.totals.entries,3);assert(report.bets.every(b=>b.username==='player_one'));assert(!report.groups.some(g=>g.number==='99'));
+const full=await transaction(c=>admins.report(c,root,p));assert.equal(full.totals.entries,4);assert.equal(full.groups[0].number,'99');
+await assert.rejects(transaction(c=>admins.report(c,master,new URLSearchParams({day:'2020-01-01',player:String(outside.id)}))),e=>e.status===403);
+const adminToken=await transaction(c=>login(c,'master_one','TestOnlyPassword123!','admin','test'));assert.equal((await transaction(c=>auth(c,adminToken,'admin'))).id,master.id);await assert.rejects(transaction(c=>auth(c,adminToken,'player')),e=>e.status===401);
+const req=(path,body,cookie='')=>new Request('https://lottery.test'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Lottery-Admin':'1',Cookie:cookie},...(body?{body:JSON.stringify(body)}:{})});
+assert.equal((await app.fetch(req('/admin/api/settle',{draw_id:draw.id,result:'07'},'lottery_admin='+adminToken))).status,403);
+assert.equal((await app.fetch(req('/admin/api/bets?day=2020-01-01',null,'lottery_admin='+adminToken))).status,200);
+assert.equal((await app.fetch(req('/admin/api/bets?day=2020-01-01'))).status,401);
+await pool.end();console.log('PASS: hierarchy permissions, branch isolation, conserving transfers, rollback, idempotency, admin login, private scheduled results, all multipliers and exactly-once publication.');

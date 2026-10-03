@@ -5,6 +5,7 @@ import {attachDatabasePool} from '@neon/functions';
 import {playerPage} from './ui-player.mjs';
 import {adminPage} from './ui-admin.mjs';
 import {cutoffFor} from './schedule.mjs';
+import {adminService} from './admin-service.mjs';
 
 pg.types.setTypeParser(20, Number);
 const derive=promisify(scrypt);
@@ -69,12 +70,20 @@ async function initialize(){
   const c=await pool.connect();try{
    await q(c,'BEGIN');await q(c,'SELECT pg_advisory_xact_lock(907240611)');
    for(const s of schema)await q(c,s);
+   // Additive migration preserves existing accounts, balances and sessions.
+   await q(c,"ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_level TEXT");
+   await q(c,"ALTER TABLE users ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES users(id)");
+   await q(c,"UPDATE users SET admin_level='root' WHERE role='admin' AND admin_level IS NULL");
+   await q(c,"CREATE INDEX IF NOT EXISTS users_parent ON users(parent_id)");
+   await q(c,"CREATE INDEX IF NOT EXISTS bets_draw_user ON bets(draw_id,user_id)");
+   await q(c,"CREATE TABLE IF NOT EXISTS scheduled_results(draw_id BIGINT PRIMARY KEY REFERENCES draws(id),result TEXT NOT NULL,actor BIGINT NOT NULL REFERENCES users(id),created_at TIMESTAMPTZ NOT NULL DEFAULT now())");
    const n=process.env.LOTTERY_ADMIN_NAME,p=process.env.LOTTERY_ADMIN_PASSWORD;
    if(!!n!==!!p)throw new Error('Both LOTTERY_ADMIN_NAME and LOTTERY_ADMIN_PASSWORD are required together');
    if(n){
     const exists=await one(c,"SELECT id FROM users WHERE role='admin' LIMIT 1");
-    if(!exists){if(!strongUser(n))throw new Error('Invalid admin username');const h=await passwordHash(p);await q(c,"INSERT INTO users(username,password,role) VALUES($1,$2,'admin')",[n.toLowerCase(),h]);}
+    if(!exists){if(!strongUser(n))throw new Error('Invalid admin username');const h=await passwordHash(p);await q(c,"INSERT INTO users(username,password,role,admin_level) VALUES($1,$2,'admin','root')",[n.toLowerCase(),h]);}
    }
+   await q(c,"UPDATE users SET parent_id=(SELECT id FROM users WHERE role='admin' AND admin_level='root' ORDER BY id LIMIT 1) WHERE role='player' AND parent_id IS NULL");
    await q(c,'COMMIT');
   }catch(e){await q(c,'ROLLBACK');throw e;}finally{c.release();}
  })().catch(e=>{initPromise=undefined;throw e});return initPromise;
@@ -101,7 +110,7 @@ async function rate(c,key,max=12){
 async function login(c,username,password,role,ip){
  const name=String(username??'').toLowerCase();await rate(c,'ip:'+ip,100);await rate(c,'login:'+role+':'+name,15);
  const u=await one(c,'SELECT * FROM users WHERE username=$1 AND role=$2',[name,role]);
- const valid=u&&u.active&&await passwordValid(password,u.password);if(!valid)fail(401,'Username သို့မဟုတ် Password မမှန်ပါ။');
+ const valid=u&&u.active&&await passwordValid(password,u.password);if(!valid)return {invalid:true};
  await q(c,'DELETE FROM login_rate WHERE key=$1',['login:'+role+':'+name]);
  const raw=token();await q(c,'DELETE FROM sessions WHERE user_id=$1 OR expires<$2',[u.id,Math.floor(Date.now()/1000)]);
  await q(c,'INSERT INTO sessions(digest,user_id,kind,expires) VALUES($1,$2,$3,$4)',[sha(raw),u.id,role,Math.floor(Date.now()/1000)+43200]);return raw;
@@ -121,7 +130,7 @@ async function move(c,uid,delta,kind,ref,note,actor){
  await q(c,'UPDATE users SET balance=$1 WHERE id=$2',[b,uid]);await q(c,'INSERT INTO ledger(user_id,delta,balance_after,kind,ref,note,actor) VALUES($1,$2,$3,$4,$5,$6,$7)',[uid,delta,b,kind,ref,note,actor]);
 }
 async function playerState(c,u){
- const day=await ensureDay(c);return {account:{id:u.id,username:u.username,balance:Number((await one(c,'SELECT balance FROM users WHERE id=$1',[u.id])).balance),daily_limit:Number(u.daily_limit),excluded_until:u.excluded_until},server_time:iso(now()),day,
+ const day=await ensureDay(c);await admins.publishDue(c);return {account:{id:u.id,username:u.username,balance:Number((await one(c,'SELECT balance FROM users WHERE id=$1',[u.id])).balance),daily_limit:Number(u.daily_limit),excluded_until:u.excluded_until},server_time:iso(now()),day,
  draws:(await q(c,'SELECT id,day::text,market,cutoff,multiplier,status,result,source,settled_at FROM draws ORDER BY day DESC,id LIMIT 90')).rows,
  bets:(await q(c,`SELECT b.id,b.number,b.stake,b.payout,b.created_at,d.day::text,d.market,d.status,d.result FROM bets b JOIN draws d ON d.id=b.draw_id WHERE b.user_id=$1 ORDER BY b.id DESC LIMIT 500`,[u.id])).rows,
  ledger:(await q(c,'SELECT id,delta,balance_after,kind,note,created_at FROM ledger WHERE user_id=$1 ORDER BY id DESC LIMIT 500',[u.id])).rows};
@@ -137,18 +146,10 @@ async function place(c,u,data){
  const ins=await one(c,'INSERT INTO bets(user_id,draw_id,number,stake,multiplier,created_at,request_key) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[u.id,draw_id,number,stake,d.multiplier,now(),key]);
  await move(c,u.id,-stake,'entry','bet:'+ins.id,d.market+' '+number,u.id);return {bet_id:ins.id,duplicate:false};
 }
-async function createPlayer(c,admin,data){
- if(!strongUser(data.username)||!passOk(data.password))fail(400,'Username သို့မဟုတ် Password သတ်မှတ်ချက်မမှန်ပါ။');
- const h=await passwordHash(data.password);let r;try{r=await one(c,"INSERT INTO users(username,password,role) VALUES($1,$2,'player') RETURNING id",[data.username.toLowerCase(),h]);}catch(e){if(e.code==='23505')fail(409,'ဒီ Username ရှိပြီးသားပါ။');throw e;}
- await q(c,'INSERT INTO audit(actor,action,detail) VALUES($1,$2,$3)',[admin.id,'create_user',JSON.stringify({user_id:r.id,username:data.username.toLowerCase()})]);return {id:r.id};
-}
-async function adjust(c,admin,data){
- const {user_id,delta,note,key}=data;if(!int(user_id,1,2**31)||!int(delta,-1_000_000_000,1_000_000_000)||delta===0||typeof note!=='string'||note.trim().length<5||note.length>240||!reqKey(key))fail(400,'Token ပြင်ဆင်မှုအချက်အလက် မမှန်ပါ။');
- const ref='adjust:'+admin.id+':'+key,old=await one(c,'SELECT * FROM ledger WHERE ref=$1',[ref]);if(old)return {duplicate:true};const u=await one(c,"SELECT * FROM users WHERE id=$1 AND role='player'",[user_id]);if(!u)fail(404,'Player မတွေ့ပါ။');await move(c,user_id,delta,'admin',ref,note,admin.id);await q(c,'INSERT INTO audit(actor,action,detail) VALUES($1,$2,$3)',[admin.id,'adjust',JSON.stringify({user_id,delta,note})]);return {duplicate:false};
-}
 async function settle(c,admin,data){
  const {draw_id,result,source}=data;if(!int(draw_id,1,2**31)||typeof source!=='string'||source.trim().length<5||source.length>240)fail(400,'ရလဒ်အချက်အလက် မမှန်ပါ။');const d=await one(c,'SELECT * FROM draws WHERE id=$1 FOR UPDATE',[draw_id]);if(!d)fail(404,'Draw မတွေ့ပါ။');if(typeof result!=='string'||!(new RegExp('^[0-9]{'+d.market[0]+'}$')).test(result))fail(400,'အနိုင်ရဂဏန်းအရေအတွက် မမှန်ပါ။');if(d.status==='settled'){if(d.result!==result||d.source!==source)fail(409,'ထုတ်ပြန်ပြီးသားရလဒ်ကို ပြန်ပြင်လို့မရပါ။');return {duplicate:true};}if(now()<new Date(d.cutoff))fail(409,'ပိတ်ချိန်မတိုင်ခင် ရလဒ်ထုတ်ပြန်လို့မရပါ။');const ws=(await q(c,'SELECT * FROM bets WHERE draw_id=$1 AND number=$2 ORDER BY id FOR UPDATE',[draw_id,result])).rows;let total=0;for(const b of ws){const payout=Number(b.stake)*Number(b.multiplier);await move(c,Number(b.user_id),payout,'win','win:'+b.id,d.market+' '+result,admin.id);await q(c,'UPDATE bets SET payout=$1 WHERE id=$2',[payout,b.id]);total+=payout;}await q(c,"UPDATE draws SET status='settled',result=$1,source=$2,settled_at=$3 WHERE id=$4",[result,source,now(),draw_id]);await q(c,'INSERT INTO audit(actor,action,detail) VALUES($1,$2,$3)',[admin.id,'settle',JSON.stringify({draw_id,result,source,winners:ws.length,total_payout:total})]);return {winners:ws.length,payout:total,duplicate:false};
 }
+const admins=adminService({q,one,fail,int,reqKey,strongUser,passOk,passwordHash,move,ensureDay,settle,now,localDay});
 async function preferences(c,u,data){if(!int(data.daily_limit,1,1_000_000)||!int(data.break_days,0,365))fail(400,'Limit အချက်အလက် မမှန်ပါ။');const cur=await one(c,'SELECT * FROM users WHERE id=$1 FOR UPDATE',[u.id]);if(data.daily_limit>Number(cur.daily_limit))fail(409,'ဒီဗားရှင်းမှာ daily limit ကို လျှော့ချနိုင်တာပဲ ဖြစ်ပါတယ်။');let exp=cur.excluded_until?new Date(cur.excluded_until):null;if(data.break_days){const n=new Date(Date.now()+data.break_days*86400000);if(!exp||n>exp)exp=n;}await q(c,'UPDATE users SET daily_limit=$1,excluded_until=$2 WHERE id=$3',[data.daily_limit,exp,u.id]);await q(c,'INSERT INTO audit(actor,action,detail) VALUES($1,$2,$3)',[u.id,'preferences',JSON.stringify({daily_limit:data.daily_limit,excluded_until:exp})]);return {ok:true};}
 async function body(req){if(req.headers.get('content-type')?.split(';')[0]!=='application/json')fail(415,'JSON လိုအပ်ပါသည်။');const text=await req.text();if(!text||Buffer.byteLength(text)>20000)fail(413,'Request size မမှန်ပါ။');try{const x=JSON.parse(text);if(!x||typeof x!=='object'||Array.isArray(x))throw 0;return x;}catch{fail(400,'Request data မမှန်ပါ။')}}
 const ip=req=>(req.headers.get('x-forwarded-for')??'unknown').split(',')[0].trim().slice(0,100);
@@ -159,21 +160,25 @@ export default{async fetch(request){await initialize();const url=new URL(request
  else if(request.method==='GET'&&(path==='/admin'||path==='/admin/')){h.set('Content-Type','text/html; charset=utf-8');out=adminPage();}
  else if(request.method==='GET'&&path==='/health')out=JSON.stringify({ok:true,service:'dubai-lottery'});
  else if(request.method==='GET'&&path==='/ready'){await pool.query('SELECT 1');out=JSON.stringify({ok:true});}
- else if(request.method==='GET'&&path==='/api/state'){const c=await pool.connect();try{const u=await auth(c,cookies(request).lottery_session,'player');out=JSON.stringify(await playerState(c,u));}finally{c.release();}}
- else if(request.method==='GET'&&path==='/admin/api/state'){const c=await pool.connect();try{const a=await auth(c,cookies(request).lottery_admin,'admin');await ensureDay(c);out=JSON.stringify({admin:a.username,users:(await q(c,"SELECT id,username,balance,active,daily_limit FROM users WHERE role='player' ORDER BY id")).rows,draws:(await q(c,"SELECT id,day::text,market,status,cutoff FROM draws WHERE status='closed' ORDER BY day DESC,id")).rows,audit:(await q(c,'SELECT * FROM audit ORDER BY id DESC LIMIT 200')).rows});}finally{c.release();}}
+ else if(request.method==='GET'&&path==='/api/state')out=JSON.stringify(await transaction(async c=>playerState(c,await auth(c,cookies(request).lottery_session,'player'))));
+ else if(request.method==='GET'&&path==='/admin/api/state')out=JSON.stringify(await transaction(async c=>admins.state(c,await auth(c,cookies(request).lottery_admin,'admin'))));
+ else if(request.method==='GET'&&path==='/admin/api/bets')out=JSON.stringify(await transaction(async c=>admins.report(c,await auth(c,cookies(request).lottery_admin,'admin'),url.searchParams)));
  else if(request.method==='POST'){
   const data=await body(request);
   if(path.startsWith('/api/')&&request.headers.get('X-Lottery-Request')!=='1')fail(403,'Request origin မမှန်ပါ။');
   if(path.startsWith('/admin/api/')&&request.headers.get('X-Lottery-Admin')!=='1')fail(403,'Admin request origin မမှန်ပါ။');
-  if(path==='/api/login'){const raw=await transaction(c=>login(c,data.username,data.password,'player',ip(request)));h.append('Set-Cookie',playerCookie(raw));out=JSON.stringify({ok:true});}
-  else if(path==='/admin/api/login'){const raw=await transaction(c=>login(c,data.username,data.password,'admin',ip(request)));h.append('Set-Cookie',adminCookie(raw));out=JSON.stringify({ok:true});}
+  if(path==='/api/login'){const raw=await transaction(c=>login(c,data.username,data.password,'player',ip(request)));if(raw?.invalid)fail(401,'Username သို့မဟုတ် Password မမှန်ပါ။');h.append('Set-Cookie',playerCookie(raw));out=JSON.stringify({ok:true});}
+  else if(path==='/admin/api/login'){const raw=await transaction(c=>login(c,data.username,data.password,'admin',ip(request)));if(raw?.invalid)fail(401,'Username သို့မဟုတ် Password မမှန်ပါ။');h.append('Set-Cookie',adminCookie(raw));out=JSON.stringify({ok:true});}
   else if(path==='/api/logout'){const raw=cookies(request).lottery_session;await transaction(c=>q(c,'DELETE FROM sessions WHERE digest=$1',[sha(raw??'')]));h.append('Set-Cookie',playerCookie('',true));out=JSON.stringify({ok:true});}
   else if(path==='/admin/api/logout'){const raw=cookies(request).lottery_admin;await transaction(c=>q(c,'DELETE FROM sessions WHERE digest=$1',[sha(raw??'')]));h.append('Set-Cookie',adminCookie('',true));out=JSON.stringify({ok:true});}
   else out=JSON.stringify(await transaction(async c=>{
    if(path==='/api/bet'){const u=await auth(c,cookies(request).lottery_session,'player');await ensureDay(c);return place(c,u,data);}
    if(path==='/api/preferences'){const u=await auth(c,cookies(request).lottery_session,'player');return preferences(c,u,data);}
-   const a=await auth(c,cookies(request).lottery_admin,'admin');if(path==='/admin/api/create')return createPlayer(c,a,data);if(path==='/admin/api/adjust')return adjust(c,a,data);if(path==='/admin/api/settle')return settle(c,a,data);fail(404,'မတွေ့ပါ။');
+   const a=await auth(c,cookies(request).lottery_admin,'admin');if(path==='/admin/api/create')return admins.create(c,a,data);if(path==='/admin/api/adjust')return admins.adjust(c,a,data);if(path==='/admin/api/settle')return admins.schedule(c,a,data);fail(404,'မတွေ့ပါ။');
   }));
  }else fail(404,'မတွေ့ပါ။');
  }catch(e){if(e instanceof APIError){status=e.status;out=JSON.stringify({error:e.message});}else{status=500;out=JSON.stringify({error:'Server error. ပြန်စမ်းပါ။'});console.error('lottery_request_failed',{code:e.code??'internal'});}}
  return new Response(out,{status,headers:h});}};
+
+// Integration tests import the same service; no test HTTP endpoints are exposed.
+export {initialize,pool,transaction,admins,playerState,auth,login,place,ensureDay};
