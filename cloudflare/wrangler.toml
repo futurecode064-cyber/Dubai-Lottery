@@ -1,0 +1,14 @@
+name = "dubai-lottery-freeplay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+APP_ORIGIN = "https://app.local"
+SESSION_TTL_SECONDS = "43200"
+DEFAULT_STARTING_POINTS = "10000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dubai-lottery-freeplay"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
