@@ -156,7 +156,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp "$HOME/.android/debug.keystore" "$RUNNER_TEMP/private-backup/debug.keystore"
+          KEYSTORE_PATH="$(gradle --no-daemon -p android :app:signingReport | sed -n 's/^Store: //p' | head -n1)"
+          test -f "$KEYSTORE_PATH"
+          cp "$KEYSTORE_PATH" "$RUNNER_TEMP/private-backup/debug.keystore"
           tar -czf "$RUNNER_TEMP/private-backup.tar.gz" -C "$RUNNER_TEMP/private-backup" .
           mkdir -p "$RUNNER_TEMP/encrypted-backup"
           openssl rand -hex 32 > "$RUNNER_TEMP/backup-key.txt"
