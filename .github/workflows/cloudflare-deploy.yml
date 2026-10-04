@@ -122,9 +122,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}health" | tee /tmp/health.json
+          curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 5 --retry-max-time 120 "${WORKER_URL}health" | tee /tmp/health.json
           jq -e '.ok == true and .mode == "free-play"' /tmp/health.json >/dev/null
-          curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}api/config" | tee /tmp/public.json
+          curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 5 --retry-max-time 120 "${WORKER_URL}api/config" | tee /tmp/public.json
           jq -e '.mode == "free-play" and .redeemable == false' /tmp/public.json >/dev/null
       - name: Verify live player and admin operations
         run: python3 cloudflare/live_verify.py
