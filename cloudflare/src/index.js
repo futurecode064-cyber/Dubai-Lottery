@@ -35,15 +35,17 @@ async function hashPassword(password) {
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) fail(400, 'Password ကို ၁၂–၁၂၈ လုံး သတ်မှတ်ပါ။');
   const salt = new Uint8Array(16); crypto.getRandomValues(salt);
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const rounds = 120000;
+  // Workers caps a single PBKDF2 operation at 100,000 iterations.
+  const rounds = 100000;
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: rounds }, key, 256);
   return `pbkdf2$${rounds}$${bytesToB64url(salt)}$${bytesToB64url(new Uint8Array(bits))}`;
 }
 async function verifyPassword(password, saved) {
   try {
     const [kind, roundsText, saltText, digestText] = String(saved).split('$');
-    if (kind !== 'pbkdf2') return false;
+    if (kind !== 'pbkdf2' || typeof password !== 'string' || password.length < 12 || password.length > 128) return false;
     const rounds = Number(roundsText);
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 100000) return false;
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
     const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: b64urlToBytes(saltText), iterations: rounds }, key, 256));
     const expected = b64urlToBytes(digestText);

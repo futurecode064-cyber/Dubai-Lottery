@@ -5,6 +5,9 @@ on:
     branches: [cloudflare-hybrid]
     paths:
       - '.github/workflows/cloudflare-deploy.yml'
+concurrency:
+  group: cloudflare-freeplay-deploy
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -81,6 +84,29 @@ jobs:
           ADMIN_TOKEN="$(printf '%s' "${CLOUDFLARE_API_TOKEN}:dubai-lottery-freeplay-admin-v1" | sha256sum | awk '{print $1}')"
           printf '%s' "$ADMIN_TOKEN" | npx --yes wrangler@4 secret put ADMIN_TOKEN
           echo 'ADMIN_SECRET=configured'
+      - name: Ensure free workers.dev subdomain
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, urllib.request, urllib.error
+          account = os.environ['CLOUDFLARE_ACCOUNT_ID']
+          url = f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/subdomain'
+          headers = {'Authorization': 'Bearer ' + os.environ['CLOUDFLARE_API_TOKEN'], 'Content-Type': 'application/json'}
+          try:
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
+                  existing = json.load(response)
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              existing = {}
+          if not existing.get('result', {}).get('subdomain'):
+              wanted = 'futurecode-dubai-' + account[:8]
+              req = urllib.request.Request(url, data=json.dumps({'subdomain': wanted}).encode(), headers=headers, method='PUT')
+              with urllib.request.urlopen(req) as response:
+                  created = json.load(response)
+              assert created['success'], 'workers.dev subdomain registration failed'
+          print('WORKERS_SUBDOMAIN=ready')
+          PYCODE
       - name: Deploy Worker
         working-directory: cloudflare
         shell: bash
@@ -100,6 +126,8 @@ jobs:
           jq -e '.ok == true and .mode == "free-play"' /tmp/health.json >/dev/null
           curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}api/config" | tee /tmp/public.json
           jq -e '.mode == "free-play" and .redeemable == false' /tmp/public.json >/dev/null
+      - name: Verify live player and admin operations
+        run: python3 cloudflare/live_verify.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
