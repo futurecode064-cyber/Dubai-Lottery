@@ -19,6 +19,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Normalize and validate Cloudflare credentials
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import os, re
+          values = {name: os.environ.get(name, '').strip() for name in ('CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID')}
+          if not all(values.values()):
+              raise SystemExit('CLOUDFLARE_ACCESS=missing: both repository secrets are required')
+          if not re.fullmatch(r'[0-9a-fA-F]{32}', values['CLOUDFLARE_ACCOUNT_ID']):
+              raise SystemExit('CLOUDFLARE_ACCOUNT_ID must contain only the 32-character Account ID, without a label or command')
+          if any(ch.isspace() for ch in values['CLOUDFLARE_API_TOKEN']):
+              raise SystemExit('CLOUDFLARE_API_TOKEN must contain only the token, without a command')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              for name, value in values.items():
+                  print('::add-mask::' + value)
+                  out.write(name + '=' + value + '\n')
+          print('CLOUDFLARE_CREDENTIAL_FORMAT=valid')
+          PYCODE
       - name: Verify Cloudflare access
         shell: bash
         run: |
@@ -76,7 +94,7 @@ jobs:
           set -euo pipefail
           curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}health" | tee /tmp/health.json
           jq -e '.ok == true and .mode == "free-play"' /tmp/health.json >/dev/null
-          curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}api/public" | tee /tmp/public.json
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 "${WORKER_URL}api/config" | tee /tmp/public.json
           jq -e '.mode == "free-play" and .redeemable == false' /tmp/public.json >/dev/null
       - uses: actions/setup-java@v4
         with:
