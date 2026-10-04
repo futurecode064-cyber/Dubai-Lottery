@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import secrets
+import time
 import urllib.error
 import urllib.request
 
@@ -45,6 +46,19 @@ def query(sql, params):
     assert result['success'], 'Fixture cleanup failed'
 
 try:
+    # A new deployment can briefly coexist with the previous version at edge locations.
+    # Wait for the newly added, authenticated dashboard route before exercising it.
+    for attempt in range(30):
+        req = urllib.request.Request(base + '/admin/state', headers={
+            'X-Demo-Admin-Key': admin, 'Accept': 'application/json', 'User-Agent': 'Dubai-Lottery-Live-QA/1.0'})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                assert response.status == 200
+            break
+        except urllib.error.HTTPError as error:
+            if error.code != 404 or attempt == 29:
+                raise
+            time.sleep(1)
     for path in ['/player', '/admin']:
         req = urllib.request.Request(base + path, headers={'User-Agent': 'Dubai-Lottery-Live-QA/1.0'})
         with urllib.request.urlopen(req, timeout=30) as response:

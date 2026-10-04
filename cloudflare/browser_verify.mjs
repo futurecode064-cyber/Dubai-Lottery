@@ -5,6 +5,9 @@ const base = process.env.WORKER_URL.replace(/\/$/, '');
 const admin = createHash('sha256').update(process.env.CLOUDFLARE_API_TOKEN + ':dubai-lottery-freeplay-admin-v1').digest('hex');
 const username = 'webqa_' + randomBytes(8).toString('hex');
 const password = randomBytes(24).toString('base64url');
+console.log('::add-mask::' + admin);
+console.log('::add-mask::' + password);
+console.log('ADMIN_CREDENTIAL_SHA256=' + createHash('sha256').update(admin).digest('hex'));
 const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Dubai-Lottery-Live-QA/1.0', 'X-Demo-Admin-Key': admin };
 let browser, user;
 try {
