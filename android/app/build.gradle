@@ -8,7 +8,7 @@ android {
     compileSdk 35
     buildToolsVersion '35.0.0'
     defaultConfig {
-        applicationId 'com.futurecode.dubailottery'
+        applicationId 'com.futurecode.dubailottery.freeplay'
         minSdk 26
         targetSdk 35
         versionCode 5
@@ -17,6 +17,10 @@ android {
     }
     buildFeatures { buildConfig true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    def preservedDebugKey = providers.environmentVariable('LOTTERY_DEBUG_KEYSTORE').orNull
+    if (preservedDebugKey) {
+        signingConfigs.debug.storeFile = file(preservedDebugKey)
+    }
     buildTypes {
         release { minifyEnabled false }
     }

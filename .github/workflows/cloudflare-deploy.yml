@@ -19,6 +19,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+      LOTTERY_DEBUG_KEYSTORE: ${{ runner.temp }}/lottery-freeplay.keystore
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -145,6 +147,16 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Prepare isolated free-play signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_DEBUG_KEYSTORE_B64:-}" ]; then
+            printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" | base64 --decode > "$LOTTERY_DEBUG_KEYSTORE"
+          else
+            keytool -genkeypair -keystore "$LOTTERY_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname 'CN=Dubai Lottery Free Play, O=Future Code, C=MM' -keyalg RSA -keysize 3072 -validity 10000
+          fi
+          chmod 600 "$LOTTERY_DEBUG_KEYSTORE"
       - name: Build Cloudflare-connected APK
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug -PapiBase="$WORKER_URL"
@@ -156,9 +168,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KEYSTORE_PATH="$(gradle --no-daemon -p android :app:signingReport | sed -n 's/^Store: //p' | head -n1)"
-          test -f "$KEYSTORE_PATH"
-          cp "$KEYSTORE_PATH" "$RUNNER_TEMP/private-backup/debug.keystore"
+          cp "$LOTTERY_DEBUG_KEYSTORE" "$RUNNER_TEMP/private-backup/debug.keystore"
           tar -czf "$RUNNER_TEMP/private-backup.tar.gz" -C "$RUNNER_TEMP/private-backup" .
           mkdir -p "$RUNNER_TEMP/encrypted-backup"
           openssl rand -hex 32 > "$RUNNER_TEMP/backup-key.txt"
