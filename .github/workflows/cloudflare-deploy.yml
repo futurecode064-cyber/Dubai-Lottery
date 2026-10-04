@@ -20,7 +20,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
-      LOTTERY_DEBUG_KEYSTORE: ${{ runner.temp }}/lottery-freeplay.keystore
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -151,6 +150,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          LOTTERY_DEBUG_KEYSTORE="$RUNNER_TEMP/lottery-freeplay.keystore"
+          echo "LOTTERY_DEBUG_KEYSTORE=$LOTTERY_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
           if [ -n "${ANDROID_DEBUG_KEYSTORE_B64:-}" ]; then
             printf '%s' "$ANDROID_DEBUG_KEYSTORE_B64" | base64 --decode > "$LOTTERY_DEBUG_KEYSTORE"
           else
