@@ -5,6 +5,8 @@ on:
     branches: [cloudflare-hybrid]
     paths:
       - '.github/workflows/cloudflare-deploy.yml'
+      - 'cloudflare/**'
+      - 'android/**'
 concurrency:
   group: cloudflare-freeplay-deploy
   cancel-in-progress: false
@@ -128,6 +130,8 @@ jobs:
           jq -e '.mode == "free-play" and .redeemable == false' /tmp/public.json >/dev/null
       - name: Verify live player and admin operations
         run: python3 cloudflare/live_verify.py
+      - name: Create owner demo access
+        run: python3 cloudflare/prepare_demo_access.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -148,3 +152,18 @@ jobs:
         with:
           name: Dubai-Lottery-FreePlay-Cloudflare-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Encrypt demo access and this build's signing backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$HOME/.android/debug.keystore" "$RUNNER_TEMP/private-backup/debug.keystore"
+          tar -czf "$RUNNER_TEMP/private-backup.tar.gz" -C "$RUNNER_TEMP/private-backup" .
+          mkdir -p "$RUNNER_TEMP/encrypted-backup"
+          openssl rand -hex 32 > "$RUNNER_TEMP/backup-key.txt"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -in "$RUNNER_TEMP/private-backup.tar.gz" -out "$RUNNER_TEMP/encrypted-backup/owner-backup.enc" -pass file:"$RUNNER_TEMP/backup-key.txt"
+          openssl pkeyutl -encrypt -pubin -inkey cloudflare/backup-public.pem -in "$RUNNER_TEMP/backup-key.txt" -out "$RUNNER_TEMP/encrypted-backup/key.enc" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dubai-Lottery-Encrypted-Owner-Backup
+          path: ${{ runner.temp }}/encrypted-backup/
+          retention-days: 7
