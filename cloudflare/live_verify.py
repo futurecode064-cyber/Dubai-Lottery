@@ -18,7 +18,7 @@ fixture_day = '1900-01-01'
 created_result = False
 
 def request(path, payload=None, token=None, admin_key=False, expected=200, origin=None):
-    headers = {'Content-Type': 'application/json'}
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Dubai-Lottery-Live-QA/1.0'}
     if token:
         headers['Authorization'] = 'Bearer ' + token
     if admin_key:
@@ -30,8 +30,9 @@ def request(path, payload=None, token=None, admin_key=False, expected=200, origi
         response = urllib.request.urlopen(req, timeout=30)
     except urllib.error.HTTPError as error:
         response = error
-    data = json.loads(response.read())
-    assert response.status == expected, (path, response.status, data.get('error'))
+    raw = response.read()
+    assert response.status == expected, (path, response.status, raw.decode(errors='replace')[:160])
+    data = json.loads(raw)
     return data, response.headers
 
 def query(sql, params):
