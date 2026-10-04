@@ -59,8 +59,12 @@ jobs:
           LIST="$(npx --yes wrangler@4 d1 list --json)"
           D1_DATABASE_ID="$(printf '%s' "$LIST" | jq -r '.[] | select(.name=="dubai-lottery-freeplay") | .uuid' | head -n1)"
           if [ -z "$D1_DATABASE_ID" ]; then
-            CREATE="$(npx --yes wrangler@4 d1 create dubai-lottery-freeplay --json)"
-            D1_DATABASE_ID="$(printf '%s' "$CREATE" | jq -r '.uuid // .d1_databases[0].database_id // empty')"
+            CREATE="$(curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data '{"name":"dubai-lottery-freeplay"}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database")"
+            D1_DATABASE_ID="$(printf '%s' "$CREATE" | jq -r '.result.uuid // empty')"
           fi
           test -n "$D1_DATABASE_ID"
           echo "D1_DATABASE_ID=$D1_DATABASE_ID" >> "$GITHUB_ENV"
