@@ -45,6 +45,23 @@ def query(sql, params):
     assert result['success'], 'Fixture cleanup failed'
 
 try:
+    for path in ['/player', '/admin']:
+        req = urllib.request.Request(base + path, headers={'User-Agent': 'Dubai-Lottery-Live-QA/1.0'})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            page = response.read().decode()
+            assert response.status == 200 and response.headers['Content-Type'].startswith('text/html')
+            assert 'id="loginForm"' in page and admin not in page
+            assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']
+            if path == '/player':
+                assert '__API_BASE__' not in page and base in page
+    request('/admin/state', expected=401)
+    request('/api/admin/login', {'username': 'admin', 'password': 'wrong-password-123'}, expected=401)
+    request('/api/admin/login', {'username': 'wrong-user', 'password': admin}, expected=401)
+    admin_login, _ = request('/api/admin/login', {'username': 'admin', 'password': admin})
+    assert admin_login['token'] == admin
+    dashboard, _ = request('/admin/state', admin_key=True)
+    assert isinstance(dashboard['users'], list) and isinstance(dashboard['scheduled'], list)
+    assert all('password_hash' not in user for user in dashboard['users'])
     public, headers = request('/api/config', origin='https://app.local')
     assert public['mode'] == 'free-play' and public['redeemable'] is False
     assert headers['Access-Control-Allow-Origin'] == 'https://app.local'
@@ -93,7 +110,7 @@ try:
     request('/admin/config', {'announcement': public['announcement']}, admin_key=True)
     request('/api/logout', {}, token=token)
     request('/api/state', token=token, expected=401)
-    print('LIVE_VERIFY=passed: auth, CORS, sessions, points, idempotency, limits, results, config and logout')
+    print('LIVE_VERIFY=passed: player/admin web pages, admin login, protected dashboard, auth, CORS, sessions, points, idempotency, limits, results, config and logout')
 finally:
     if user_id is not None:
         for table in ['sessions', 'plays', 'point_ledger']:

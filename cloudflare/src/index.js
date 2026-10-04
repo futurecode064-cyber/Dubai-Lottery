@@ -1,3 +1,5 @@
+import playerHtml from '../../android/app/src/main/assets/index.html';
+import adminHtml from './admin.html';
 const MARKETS = Object.freeze({ '2D': { digits: 2, multiplier: 80, utc: '11:30' }, '3D': { digits: 3, multiplier: 650, utc: '12:30' }, '4D': { digits: 4, multiplier: 6000, utc: '13:30' } });
 const enc = new TextEncoder();
 const MAX_STAKE = 100000;
@@ -98,6 +100,29 @@ async function auth(env, req) {
 function adminAuth(env, req) {
   const got = req.headers.get('X-Demo-Admin-Key') || '';
   if (!env.ADMIN_TOKEN || got !== env.ADMIN_TOKEN) fail(401, 'Admin key မမှန်ပါ။');
+}
+function html(page) {
+  return new Response(page, { headers: {
+    'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+  } });
+}
+async function adminLogin(env, req, data) {
+  const key = `admin-login:${req.headers.get('CF-Connecting-IP') || 'unknown'}`;
+  await rateLogin(env, key);
+  const password = typeof data.password === 'string' && data.password.length <= 128 ? data.password : '';
+  const got = await sha256(password), expected = await sha256(env.ADMIN_TOKEN || randomToken());
+  let diff = 0; for (let i = 0; i < expected.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (!env.ADMIN_TOKEN || data.username !== (env.ADMIN_USERNAME || 'admin') || diff !== 0) fail(401, 'Username သို့မဟုတ် Password မမှန်ပါ။');
+  await env.DB.prepare('DELETE FROM login_rate WHERE key=?').bind(key).run();
+  return { token: env.ADMIN_TOKEN, username: env.ADMIN_USERNAME || 'admin' };
+}
+async function adminState(env) {
+  const state = await publicState(env);
+  const users = (await env.DB.prepare("SELECT id,username,points,daily_limit,active,created_at FROM users WHERE role='player' ORDER BY id DESC LIMIT 500").all()).results;
+  const scheduled = (await env.DB.prepare('SELECT day,market,result,publish_at FROM scheduled_results ORDER BY day,market LIMIT 90').all()).results;
+  return { ...state, users, scheduled };
 }
 async function configObject(env) {
   const { results } = await env.DB.prepare('SELECT key,value FROM app_config').all();
@@ -247,6 +272,9 @@ export default {
     const url = new URL(req.url), path = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(env, req) });
     try {
+      if (req.method === 'GET' && ['/', '/player', '/player/'].includes(path)) return html(playerHtml.replace('__API_BASE__', url.origin));
+      if (req.method === 'GET' && ['/admin', '/admin/'].includes(path)) return html(adminHtml);
+      if (req.method === 'POST' && path === '/api/admin/login') return json(env, req, await adminLogin(env, req, await body(req)));
       if (req.method === 'GET' && path === '/health') return json(env, req, { ok: true, service: 'dubai-lottery-freeplay', mode: 'free-play' });
       if (req.method === 'GET' && (path === '/api/config' || path === '/api/results')) return json(env, req, await publicState(env), 200, { 'Cache-Control': 'public, max-age=30' });
       if (req.method === 'GET' && path === '/api/state') return json(env, req, await playerState(env, req));
@@ -258,6 +286,7 @@ export default {
       if (req.method === 'POST' && path === '/api/preferences') return json(env, req, await updatePreferences(env, req, await body(req)));
       if (path.startsWith('/admin/')) {
         adminAuth(env, req); const data = req.method === 'POST' ? await body(req) : {};
+        if (req.method === 'GET' && path === '/admin/state') return json(env, req, await adminState(env));
         if (req.method === 'POST' && path === '/admin/users') return json(env, req, await adminCreateUser(env, data));
         if (req.method === 'POST' && path === '/admin/grant') return json(env, req, await adminGrant(env, data));
         if (req.method === 'POST' && path === '/admin/result') return json(env, req, await adminScheduleResult(env, data));

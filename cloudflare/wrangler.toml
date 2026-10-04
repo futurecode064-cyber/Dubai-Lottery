@@ -3,6 +3,11 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
 
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
 [vars]
 APP_ORIGIN = "https://app.local"
 SESSION_TTL_SECONDS = "43200"
