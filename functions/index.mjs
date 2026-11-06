@@ -6,6 +6,7 @@ import {playerPage} from './ui-player.mjs';
 import {adminPage} from './ui-admin.mjs';
 import {cutoffFor} from './schedule.mjs';
 import {adminService} from './admin-service.mjs';
+import {createDesignEnabledApp} from './design-editor.mjs';
 
 pg.types.setTypeParser(20, Number);
 const derive=promisify(scrypt);
@@ -155,7 +156,7 @@ async function body(req){if(req.headers.get('content-type')?.split(';')[0]!=='ap
 const ip=req=>(req.headers.get('x-forwarded-for')??'unknown').split(',')[0].trim().slice(0,100);
 async function transaction(fn){const c=await pool.connect();try{await q(c,'BEGIN');await q(c,'SELECT pg_advisory_xact_lock(907240612)');const r=await fn(c);await q(c,'COMMIT');return r;}catch(e){await q(c,'ROLLBACK');throw e;}finally{c.release();}}
 function headers(type='application/json; charset=utf-8'){return new Headers({'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer','Strict-Transport-Security':'max-age=31536000','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});}
-export default{async fetch(request){await initialize();const url=new URL(request.url),path=url.pathname,h=headers();let status=200,out;try{
+const originalApp={async fetch(request){await initialize();const url=new URL(request.url),path=url.pathname,h=headers();let status=200,out;try{
  if(request.method==='GET'&&path==='/'){h.set('Content-Type','text/html; charset=utf-8');out=playerPage();}
  else if(request.method==='GET'&&(path==='/admin'||path==='/admin/')){h.set('Content-Type','text/html; charset=utf-8');out=adminPage();}
  else if(request.method==='GET'&&path==='/health')out=JSON.stringify({ok:true,service:'dubai-lottery'});
@@ -182,3 +183,6 @@ export default{async fetch(request){await initialize();const url=new URL(request
 
 // Integration tests import the same service; no test HTTP endpoints are exposed.
 export {initialize,pool,transaction,admins,playerState,auth,login,place,ensureDay};
+
+// The design studio wraps the current request handler; original lottery operations remain untouched.
+export default createDesignEnabledApp({original:originalApp,pool,transaction,auth,cookies});
