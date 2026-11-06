@@ -111,7 +111,7 @@ boot();
   if(typeof x.siteTitle==='string')document.title=x.siteTitle;
  }
  async function sync(){
-  try{const res=await fetch('/api/public-design',{cache:'no-store'});if(res.ok){const o=await res.json();apply(o.design)}}catch(_){}
+  try{const res=await fetch('/api/public-design',{cache:'no-store'});if(res.ok){const o=await res.json();if(o.version>0)apply(o.design)}}catch(_){}
  }
  sync();setInterval(sync,30000);
 })();
