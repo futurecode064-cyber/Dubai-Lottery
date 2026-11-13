@@ -130,6 +130,15 @@ async function move(c,uid,delta,kind,ref,note,actor){
  if(b<0||b>MAX_BAL)fail(409,'Token လက်ကျန် မလုံလောက်ပါ သို့မဟုတ် account limit ကျော်သွားပါသည်။');
  await q(c,'UPDATE users SET balance=$1 WHERE id=$2',[b,uid]);await q(c,'INSERT INTO ledger(user_id,delta,balance_after,kind,ref,note,actor) VALUES($1,$2,$3,$4,$5,$6,$7)',[uid,delta,b,kind,ref,note,actor]);
 }
+// Public result-only view. Guest requests never create sessions or users and cannot spend tokens.
+async function guestState(c){
+ const day=await ensureDay(c);
+ await admins.publishDue(c);
+ return {guest:true,account:{username:'Guest',balance:0,daily_limit:0,excluded_until:null},
+  server_time:iso(now()),day,
+  draws:(await q(c,'SELECT id,day::text,market,cutoff,multiplier,status,result,source,settled_at FROM draws ORDER BY day DESC,id LIMIT 90')).rows,
+  bets:[],ledger:[]};
+}
 async function playerState(c,u){
  const day=await ensureDay(c);await admins.publishDue(c);return {account:{id:u.id,username:u.username,balance:Number((await one(c,'SELECT balance FROM users WHERE id=$1',[u.id])).balance),daily_limit:Number(u.daily_limit),excluded_until:u.excluded_until},server_time:iso(now()),day,
  draws:(await q(c,'SELECT id,day::text,market,cutoff,multiplier,status,result,source,settled_at FROM draws ORDER BY day DESC,id LIMIT 90')).rows,
@@ -161,7 +170,8 @@ const originalApp={async fetch(request){await initialize();const url=new URL(req
  else if(request.method==='GET'&&(path==='/admin'||path==='/admin/')){h.set('Content-Type','text/html; charset=utf-8');out=adminPage();}
  else if(request.method==='GET'&&path==='/health')out=JSON.stringify({ok:true,service:'dubai-lottery'});
  else if(request.method==='GET'&&path==='/ready'){await pool.query('SELECT 1');out=JSON.stringify({ok:true});}
- else if(request.method==='GET'&&path==='/api/state')out=JSON.stringify(await transaction(async c=>playerState(c,await auth(c,cookies(request).lottery_session,'player'))));
+ else if(request.method==='GET'&&path==='/api/guest-state')out=JSON.stringify(await transaction(c=>guestState(c)));
+  else if(request.method==='GET'&&path==='/api/state')out=JSON.stringify(await transaction(async c=>playerState(c,await auth(c,cookies(request).lottery_session,'player'))));
  else if(request.method==='GET'&&path==='/admin/api/state')out=JSON.stringify(await transaction(async c=>admins.state(c,await auth(c,cookies(request).lottery_admin,'admin'))));
  else if(request.method==='GET'&&path==='/admin/api/bets')out=JSON.stringify(await transaction(async c=>admins.report(c,await auth(c,cookies(request).lottery_admin,'admin'),url.searchParams)));
  else if(request.method==='POST'){

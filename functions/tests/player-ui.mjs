@@ -38,4 +38,22 @@ await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locato
 await page.locator('[data-v="results"]').click();assert(await page.locator('#results').isVisible());assert.deepEqual(errors,[]);const admin=await browser.newPage({viewport:{width:390,height:844}});admin.on('pageerror',e=>errors.push(e.message));let level='root';let lastReport='';
 await admin.route('https://lottery.test/**',async route=>{const u=new URL(route.request().url());if(u.pathname==='/admin/')return route.fulfill({contentType:'text/html',body:adminPage()});if(u.pathname==='/admin/api/state')return route.fulfill({json:{admin:'owner',level,balance:1000,create_levels:level==='root'?['senior','master','player']:level==='senior'?['master','player']:['player'],day:'2026-10-03',users:[{id:2,username:'player',role:'player',parent_id:1,balance:100,can_adjust:true}],draws:level==='root'?[{id:1,day:'2026-10-03',market:'2D',cutoff:'2026-10-03T11:30:00Z',scheduled_result:null}]:[],ledger:[],audit:[]}});if(u.pathname==='/admin/api/bets'){lastReport=u.search;return route.fulfill({json:{totals:{entries:2,tokens:30},groups:[{market:'2D',number:'07',entries:2,tokens:30}],bets:[],page:1,pages:1}})}return route.fulfill({status:404,json:{error:'Not found'}})});
 for(const role of ['root','senior','master']){level=role;await admin.goto('https://lottery.test/admin/');await admin.locator('#app').waitFor({state:'visible'});assert.equal(await admin.locator('#resultPanel').isVisible(),role==='root');assert.equal(await admin.locator('#level option').count(),role==='root'?3:role==='senior'?2:1);assert.equal(await admin.locator('#source').count(),0);await admin.locator('#reportSort').selectOption('count');await admin.locator('#filters button').click();await admin.waitForFunction(()=>document.getElementById('numbers').textContent.includes('07'));assert(lastReport.includes('sort=count'));assert(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
+// A browser without a session can enter Guest and see public results, but not spend tokens.
+const guestPage=await browser.newPage();
+await guestPage.route('https://lottery.test/**',async route=>{
+ const path=new URL(route.request().url()).pathname;
+ if(path==='/')return route.fulfill({contentType:'text/html',body:playerPage()});
+ if(path==='/api/state')return route.fulfill({status:401,json:{error:'Login required'}});
+ if(path==='/api/guest-state')return route.fulfill({json:{...state(),guest:true,account:{username:'Guest',balance:0,daily_limit:0,excluded_until:null},bets:[],ledger:[]}});
+ return route.fulfill({status:401,json:{error:'Login required'}});
+});
+await guestPage.goto('https://lottery.test/');
+await guestPage.locator('#guest').click();
+await guestPage.locator('#app').waitFor({state:'visible'});
+assert.equal(await guestPage.locator('#name').textContent(),'Guest');
+assert.equal(await guestPage.locator('#num').isDisabled(),true);
+assert.equal(await guestPage.locator('[data-v="wallet"]').isVisible(),false);
+await guestPage.locator('#bet').click();
+assert.equal(await guestPage.locator('#login').isVisible(),true);
+await guestPage.close();
 assert.deepEqual(errors,[]);await browser.close();console.log('PASS: schedule, 2-second rotation, admin result polling, Myanmar-midnight expiry and blink animation, reload, leading zeroes, history, mobile layout, reduced motion.');

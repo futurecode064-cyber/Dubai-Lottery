@@ -41,4 +41,16 @@ const req=(path,body,cookie='')=>new Request('https://lottery.test'+path,{method
 assert.equal((await app.fetch(req('/admin/api/settle',{draw_id:draw.id,result:'07'},'lottery_admin='+adminToken))).status,403);
 assert.equal((await app.fetch(req('/admin/api/bets?day=2020-01-01',null,'lottery_admin='+adminToken))).status,200);
 assert.equal((await app.fetch(req('/admin/api/bets?day=2020-01-01'))).status,401);
+// Guest mode is public read-only, without exposing any registered-player data.
+const guestResponse=await app.fetch(req('/api/guest-state'));
+assert.equal(guestResponse.status,200);
+const guestState=await guestResponse.json();
+assert.equal(guestState.guest,true);
+assert.equal(guestState.account.username,'Guest');
+assert.equal(guestState.account.balance,0);
+assert.deepEqual(guestState.bets,[]);
+assert.deepEqual(guestState.ledger,[]);
+assert.equal((await app.fetch(req('/api/state'))).status,401);
+const unauthorizedBet=await app.fetch(new Request('https://lottery.test/api/bet',{method:'POST',headers:{'Content-Type':'application/json','X-Lottery-Request':'1'},body:JSON.stringify({draw_id:draw.id,number:'07',stake:1,key:'guest_test_12345678'})}));
+assert.equal(unauthorizedBet.status,401);
 await pool.end();console.log('PASS: hierarchy permissions, branch isolation, conserving transfers, rollback, idempotency, admin login, private scheduled results, all multipliers and exactly-once publication.');
